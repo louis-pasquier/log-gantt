@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 
 DB = "timesheet.db"
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DB
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 # ── phases ────────────────────────────────────────────────────────────────────
 
 def get_phases():
@@ -55,6 +57,7 @@ def get_phases():
     df = pd.read_sql_query("SELECT id, name FROM phases ORDER BY name", conn)
     conn.close()
     return df
+
 
 def add_phase(name):
     conn = sqlite3.connect(DB)
@@ -67,9 +70,16 @@ def add_phase(name):
     finally:
         conn.close()
 
+
 def delete_phase(phase_id):
     conn = sqlite3.connect(DB)
     conn.execute("DELETE FROM phases WHERE id=?", (phase_id,))
+    conn.commit()
+    conn.close()
+
+def update_phase_name(phase_id, new_name):
+    conn = sqlite3.connect(DB)
+    conn.execute("UPDATE phases SET name=? WHERE id=?", (new_name.strip(), phase_id))
     conn.commit()
     conn.close()
 
@@ -90,17 +100,26 @@ def get_tasks(phase_id=None):
     conn.close()
     return df
 
+
 def add_task(phase_id, name):
     conn = sqlite3.connect(DB)
     conn.execute("INSERT INTO tasks(phase_id, name) VALUES (?, ?)", (phase_id, name.strip()))
     conn.commit()
     conn.close()
 
+
 def delete_task(task_id):
     conn = sqlite3.connect(DB)
     conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
     conn.commit()
     conn.close()
+
+def update_task_name(task_id, new_name):
+    conn = sqlite3.connect(DB)
+    conn.execute("UPDATE tasks SET name=? WHERE id=?", (new_name.strip(), task_id))
+    conn.commit()
+    conn.close()
+
 
 # ── entries ───────────────────────────────────────────────────────────────────
 
@@ -113,11 +132,19 @@ def add_entry(task_id, work_date, hours, week_start, week_end, milestone, note):
     conn.commit()
     conn.close()
 
+
 def delete_entry(entry_id):
     conn = sqlite3.connect(DB)
     conn.execute("DELETE FROM entries WHERE id=?", (entry_id,))
     conn.commit()
     conn.close()
+
+def update_entry_note(entry_id, new_note):
+    conn = sqlite3.connect(DB)
+    conn.execute("UPDATE entries SET note=? WHERE id=?", (new_note.strip(), entry_id))
+    conn.commit()
+    conn.close()
+
 
 def load_entries():
     conn = sqlite3.connect(DB)
@@ -132,6 +159,7 @@ def load_entries():
     conn.close()
     return df
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Gantt
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,18 +168,19 @@ def build_gantt(df: pd.DataFrame, dark: bool):
     if df.empty:
         return go.Figure()
 
-    bg       = "#1e1e2e" if dark else "#ffffff"
-    grid_col = "rgba(255,255,255,0.08)" if dark else "rgba(0,0,0,0.08)"
-    vline_col= "rgba(255,255,255,0.12)" if dark else "rgba(0,0,0,0.13)"
-    phase_col= "#e2e2f0" if dark else "#1a1a1a"
-    task_col = "#8888aa" if dark else "#888888"
-    mile_col = "#60a5fa"
-    tick_col = "#bbbbcc" if dark else "#333333"
+    # Themes & Colors
+    bg = "#1e1e2e" if dark else "#ffffff"
+    grid_col = "rgba(255,255,255,0.12)" if dark else "rgba(0,0,0,0.10)"
+    line_black = "#ffffff" if dark else "#000000"
+    line_gray = "#8888aa" if dark else "#7f7f7f"
+    text_color = "#e2e2f0" if dark else "#000000"
     font_fam = "Georgia, serif"
 
     data = df.copy()
-    data["week_start"] = pd.to_datetime(data["week_start"])
-    data["week_end"]   = pd.to_datetime(data["week_end"]) + pd.Timedelta(days=7)
+
+    # Parse real calendar dates from the user logs
+    data["real_start"] = pd.to_datetime(data["work_date"])
+    data["real_end"] = data["real_start"] + pd.Timedelta(days=1)
 
     seen_phases = []
     for _, row in data.iterrows():
@@ -162,73 +191,120 @@ def build_gantt(df: pd.DataFrame, dark: bool):
     ordered = []
     for ph in seen_phases:
         subset = data[data["phase"].fillna("Sans phase") == ph]
-        ordered.append({"label": ph, "is_phase": True, "is_milestone": False,
-                         "start": subset["week_start"].min(), "end": subset["week_end"].max()})
-        for _, row in subset.iterrows():
-            ordered.append({"label": row["task"], "is_phase": False,
-                             "is_milestone": bool(row["milestone"]),
-                             "start": row["week_start"], "end": row["week_end"]})
+        ordered.append({
+            "label": ph,
+            "is_phase": True,
+            "start": subset["real_start"].min(),
+            "end": subset["real_end"].max()
+        })
 
-    n      = len(ordered)
-    labels = [o["label"] for o in ordered]
-    fig    = go.Figure()
+        task_subset = subset.groupby("task").agg({"real_start": "min", "real_end": "max"}).reset_index()
+        task_subset = task_subset.sort_values("real_start")
 
-    # vertical week lines
-    grid_s = data["week_start"].min() - pd.Timedelta(days=7)
-    grid_e = data["week_end"].max()   + pd.Timedelta(days=7)
-    w = grid_s
-    while w <= grid_e:
-        fig.add_vline(x=w, line_width=1, line_dash="dot", line_color=vline_col)
-        w += pd.Timedelta(weeks=1)
+        for _, row in task_subset.iterrows():
+            ordered.append({
+                "label": row["task"],
+                "is_phase": False,
+                "start": row["real_start"],
+                "end": row["real_end"]
+            })
 
-    for i, o in enumerate(ordered):
-        y    = n - 1 - i
-        bh   = 0.68 if o["is_phase"] else 0.50
-        color= phase_col if o["is_phase"] else (mile_col if o["is_milestone"] else task_col)
+    n = len(ordered)
 
-        if o["is_milestone"]:
-            fig.add_trace(go.Scatter(
-                x=[o["start"]], y=[y], mode="markers",
-                marker=dict(symbol="diamond", size=14, color=mile_col,
-                            line=dict(color=bg, width=2)),
-                hovertemplate=f"<b>{o['label']}</b><br>Jalon: {o['start'].strftime('%d %b %Y')}<extra></extra>",
-                showlegend=False
-            ))
+    labels = []
+    for o in ordered:
+        if o["is_phase"]:
+            labels.append(f"<b>{o['label']}</b>")
         else:
-            dur = (o["end"] - o["start"]).days / 7
-            fig.add_trace(go.Bar(
-                x=[o["end"] - o["start"]], y=[y],
-                base=[o["start"]], orientation="h",
-                marker_color=color, width=bh,
-                hovertemplate=(
-                    f"<b>{o['label']}</b><br>"
-                    f"Début: {o['start'].strftime('%d %b %Y')}<br>"
-                    f"Fin: {(o['end'] - pd.Timedelta(days=7)).strftime('%d %b %Y')}<br>"
-                    f"Durée: {dur:.1f} sem.<extra></extra>"
-                ),
-                showlegend=False
-            ))
+            labels.append(f"&nbsp;&nbsp;&nbsp;&nbsp;{o['label']}")
+
+    fig = go.Figure()
+
+    # Calculate strict timeline bounds aligned to Monday-to-Sunday boundaries
+    min_date = data["real_start"].min()
+    max_date = data["real_end"].max()
+    start_timeline = min_date - pd.Timedelta(days=min_date.weekday())
+    end_timeline = max_date + pd.Timedelta(days=(6 - max_date.weekday()))
+
+    # Build a daily grid system + clean week labels
+    tick_vals = []
+    tick_texts = []
+
+    # Loop day-by-day to build an explicit grid cell for each day
+    current_day = start_timeline
+    while current_day <= end_timeline:
+        # Create a vertical grid line for every single day column boundary
+        # Solid or slightly heavier line on Mondays to show week separations
+        is_monday = (current_day.weekday() == 0)
+        v_color = grid_col if not is_monday else ("rgba(255,255,255,0.3)" if dark else "rgba(0,0,0,0.3)")
+
+        fig.add_vline(x=current_day, line_width=0.8, line_dash="dash", line_color=v_color)
+
+        # Place the Week Name (PXX) only once per week block (centered on Wednesday)
+        if current_day.weekday() == 3:
+            week_num = current_day.isocalendar()[1]
+            tick_vals.append(current_day)
+            tick_texts.append(f"<b>P{week_num}</b>")
+
+        current_day += pd.Timedelta(days=1)
+
+    # Populate horizontal timeline bars
+    for i, o in enumerate(ordered):
+        y = n - 1 - i
+        bh = 0.25 if o["is_phase"] else 0.08
+        color = line_black if o["is_phase"] else line_gray
+
+        duration_ms = (o["end"] - o["start"]).total_seconds() * 1000
+        dur_days = (o["end"] - o["start"]).days
+
+        fig.add_trace(go.Bar(
+            x=[duration_ms],
+            y=[y],
+            base=[o["start"].strftime("%Y-%m-%d %H:%M:%S")],
+            orientation="h",
+            marker_color=color,
+            width=bh,
+            hovertemplate=(
+                f"<b>{o['label']}</b><br>"
+                f"Début: {o['start'].strftime('%d %b %Y')}<br>"
+                f"Fin: {(o['end'] - pd.Timedelta(days=1)).strftime('%d %b %Y')}<br>"
+                f"Durée: {dur_days} jour(s)<extra></extra>"
+            ),
+            showlegend=False
+        ))
+
+        # Horizontal row separation line
+        fig.add_hline(y=y - 0.5, line_width=0.5, line_dash="dash", line_color=grid_col)
 
     fig.update_layout(
         barmode="overlay",
-        height=max(350, n * 34 + 80),
-        margin=dict(l=0, r=20, t=30, b=40),
+        height=max(400, n * 35 + 120),
+        margin=dict(l=340, r=30, t=80, b=40),
         plot_bgcolor=bg,
         paper_bgcolor=bg,
         xaxis=dict(
-            type="date", tickformat="P%W", dtick="W1",
-            ticklabelmode="period", showgrid=False, zeroline=False,
-            tickfont=dict(size=11, family=font_fam, color=tick_col),
+            type="date",
+            tickvals=tick_vals,
+            ticktext=tick_texts,
+            range=[start_timeline, end_timeline],
+            showgrid=False,
+            zeroline=False,
+            side="top",
+            tickfont=dict(size=13, family=font_fam, color=text_color),
         ),
         yaxis=dict(
             tickvals=list(range(n)),
             ticktext=[labels[n - 1 - i] for i in range(n)],
-            tickfont=dict(size=11, family=font_fam, color=tick_col),
-            showgrid=True, gridcolor=grid_col, zeroline=False,
+            tickfont=dict(size=12, family=font_fam, color=text_color),
+            showgrid=False,
+            zeroline=False,
+            side="left"
         ),
-        font=dict(family=font_fam, size=12, color=tick_col),
+        font=dict(family=font_fam, size=12, color=text_color),
     )
+
     return fig
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App
@@ -237,25 +313,18 @@ def build_gantt(df: pd.DataFrame, dark: bool):
 init_db()
 st.set_page_config(page_title="Journal de bord", layout="wide")
 
-# Detect dark mode via query param or session state
 if "dark" not in st.session_state:
     st.session_state.dark = False
 
 # CSS: transparent backgrounds so Streamlit's own theme shows through
 st.markdown("""
 <style>
-  /* Let Streamlit manage the theme background — don't override it */
   [data-testid="stAppViewContainer"],
   [data-testid="stHeader"],
   section.main > div { background: transparent !important; }
-
-  /* Plotly chart container background */
   .js-plotly-plot .plotly { background: transparent !important; }
-
   h1,h2,h3 { font-family: Georgia, serif !important; }
   .block-container { padding-top: 1.5rem; }
-
-  /* Subtle tab styling */
   [data-baseweb="tab-list"] { gap: 8px; }
   [data-baseweb="tab"] { border-radius: 4px 4px 0 0; }
 </style>
@@ -268,7 +337,7 @@ tab_log, tab_gantt, tab_recap, tab_manage = st.tabs([
 ])
 
 # ═══════════════════════════════════════════════════════════════
-# TAB 4 — Manage phases & tasks (must load first for selects)
+# TAB 4 — Manage phases & tasks
 # ═══════════════════════════════════════════════════════════════
 with tab_manage:
     st.subheader("Phases")
@@ -288,16 +357,35 @@ with tab_manage:
 
     phases_df = get_phases()
     if not phases_df.empty:
-        st.dataframe(phases_df.rename(columns={"id": "ID", "name": "Phase"}),
-                     hide_index=True, use_container_width=True)
-        with st.expander("🗑️ Supprimer une phase"):
-            ph_del = st.selectbox("Phase à supprimer", phases_df["id"].tolist(),
-                                  format_func=lambda i: phases_df[phases_df["id"]==i]["name"].values[0],
-                                  key="del_phase")
-            if st.button("Supprimer la phase", key="btn_del_phase"):
-                delete_phase(ph_del)
-                st.success("Phase supprimée.")
-                st.rerun()
+        show_phases = phases_df.rename(columns={"id": "ID", "name": "Phase"})
+        show_phases["Delete"] = False
+
+        # Allow editing on the "Phase" column
+        edited_phases = st.data_editor(
+            show_phases,
+            hide_index=True,
+            use_container_width=True,
+            disabled=["ID"],
+            key="phases_editor"
+        )
+
+        # Handle updates
+        if st.session_state.phases_editor.get("edited_rows"):
+            for row_idx, changes in st.session_state.phases_editor["edited_rows"].items():
+                if "Phase" in changes:
+                    p_id = int(show_phases.iloc[row_idx]["ID"])
+                    new_val = changes["Phase"]
+                    update_phase_name(p_id, new_val)
+            st.success("Phase modifiée.")
+            st.rerun()
+
+        # Handle deletions
+        phases_to_delete = edited_phases[edited_phases["Delete"] == True]
+        if not phases_to_delete.empty:
+            for _, row in phases_to_delete.iterrows():
+                delete_phase(row["ID"])
+            st.success("Phase(s) supprimée(s).")
+            st.rerun()
 
     st.divider()
     st.subheader("Tâches")
@@ -310,8 +398,8 @@ with tab_manage:
                 st.info("Créez d'abord une phase.")
             else:
                 t_phase = st.selectbox("Phase", phases_df["id"].tolist(),
-                                       format_func=lambda i: phases_df[phases_df["id"]==i]["name"].values[0])
-                t_name  = st.text_input("Nom de la tâche")
+                                       format_func=lambda i: phases_df[phases_df["id"] == i]["name"].values[0])
+                t_name = st.text_input("Nom de la tâche")
                 if st.form_submit_button("➕ Créer la tâche"):
                     if t_name.strip():
                         add_task(t_phase, t_name)
@@ -319,73 +407,71 @@ with tab_manage:
                         st.rerun()
 
     if not tasks_df.empty:
-        st.dataframe(
-            tasks_df[["id", "phase", "name"]].rename(columns={"id":"ID","phase":"Phase","name":"Tâche"}),
-            hide_index=True, use_container_width=True
+        show_tasks = tasks_df[["id", "phase", "name"]].rename(columns={"id": "ID", "phase": "Phase", "name": "Tâche"})
+        show_tasks["Delete"] = False
+
+        # Allow editing on the "Tâche" column
+        edited_tasks = st.data_editor(
+            show_tasks,
+            hide_index=True,
+            use_container_width=True,
+            disabled=["ID", "Phase"],
+            key="tasks_editor"
         )
-        with st.expander("🗑️ Supprimer une tâche"):
-            task_del = st.selectbox("Tâche à supprimer", tasks_df["id"].tolist(),
-                                    format_func=lambda i: f"{tasks_df[tasks_df['id']==i]['phase'].values[0]} › {tasks_df[tasks_df['id']==i]['name'].values[0]}",
-                                    key="del_task")
-            if st.button("Supprimer la tâche", key="btn_del_task"):
-                delete_task(task_del)
-                st.success("Tâche supprimée.")
-                st.rerun()
+
+        # Handle updates
+        if st.session_state.tasks_editor.get("edited_rows"):
+            for row_idx, changes in st.session_state.tasks_editor["edited_rows"].items():
+                if "Tâche" in changes:
+                    t_id = int(show_tasks.iloc[row_idx]["ID"])
+                    new_val = changes["Tâche"]
+                    update_task_name(t_id, new_val)
+            st.success("Tâche modifiée.")
+            st.rerun()
+
+        # Handle deletions
+        tasks_to_delete = edited_tasks[edited_tasks["Delete"] == True]
+        if not tasks_to_delete.empty:
+            for _, row in tasks_to_delete.iterrows():
+                delete_task(row["ID"])
+            st.success("Tâche(s) supprimée(s).")
+            st.rerun()
 
 # ═══════════════════════════════════════════════════════════════
 # TAB 1 — Log entry
 # ═══════════════════════════════════════════════════════════════
 with tab_log:
     phases_df = get_phases()
-    tasks_df  = get_tasks()
+    tasks_df = get_tasks()
 
     if phases_df.empty or tasks_df.empty:
         st.info("Allez dans **⚙️ Gérer phases & tâches** pour créer vos phases et tâches avant de saisir des entrées.")
     else:
         with st.form("entry_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-
-            selected_phase_id = c1.selectbox(
-                "Phase",
-                phases_df["id"].tolist(),
-                format_func=lambda i: phases_df[phases_df["id"]==i]["name"].values[0],
-                key="entry_phase"
+            selected_task_id = st.selectbox(
+                "Tâche",
+                tasks_df["id"].tolist(),
+                format_func=lambda
+                    i: f"{tasks_df[tasks_df['id'] == i]['phase'].values[0]} › {tasks_df[tasks_df['id'] == i]['name'].values[0]}",
+                key="entry_task"
             )
 
-            phase_tasks = tasks_df[tasks_df["phase_id"] == selected_phase_id]
-            if phase_tasks.empty:
-                c2.warning("Aucune tâche dans cette phase.")
-                selected_task_id = None
-            else:
-                selected_task_id = c2.selectbox(
-                    "Tâche",
-                    phase_tasks["id"].tolist(),
-                    format_func=lambda i: phase_tasks[phase_tasks["id"]==i]["name"].values[0],
-                    key="entry_task"
-                )
+            today = date.today()
 
-            today       = date.today()
-            this_monday = today - timedelta(days=today.weekday())
+            c1, c2 = st.columns(2)
+            work_date = c1.date_input("Date de travail", value=today)
+            hours = c2.number_input("Heures", min_value=0.25, step=0.25, value=1.0)
 
-            r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-            work_date  = r2c1.date_input("Date de travail", value=today)
-            hours      = r2c2.number_input("Heures", min_value=0.25, step=0.25, value=1.0)
-            week_start = r2c3.date_input("Semaine début (Gantt)", value=this_monday)
-            week_end   = r2c4.date_input("Semaine fin (Gantt)",   value=this_monday)
-
-            note      = st.text_input("Note (optionnel)")
-            milestone = st.checkbox("Jalon (milestone)")
+            note = st.text_input("Note (optionnel)")
 
             submitted = st.form_submit_button("✅ Enregistrer", use_container_width=True)
             if submitted:
                 if selected_task_id is None:
                     st.warning("Sélectionnez une tâche valide.")
-                elif week_end < week_start:
-                    st.warning("La semaine de fin doit être ≥ semaine de début.")
                 else:
-                    ws = week_start - timedelta(days=week_start.weekday())
-                    we = week_end   - timedelta(days=week_end.weekday())
-                    add_entry(selected_task_id, work_date, hours, ws, we, milestone, note)
+                    ws = work_date - timedelta(days=work_date.weekday())
+                    we = ws
+                    add_entry(selected_task_id, work_date, hours, ws, we, 0, note)
                     st.success("Entrée enregistrée ✓")
                     st.rerun()
 
@@ -394,27 +480,38 @@ with tab_log:
     df = load_entries()
     if not df.empty:
         disp = df.copy()
-        disp["Sem. début"] = pd.to_datetime(disp["week_start"]).apply(lambda d: f"P{d.isocalendar()[1]}")
-        disp["Sem. fin"]   = pd.to_datetime(disp["week_end"]).apply(lambda d: f"P{d.isocalendar()[1]}")
-        disp["Jalon"]      = disp["milestone"].astype(bool)
-        st.dataframe(
-            disp[["id","phase","task","work_date","hours","Sem. début","Sem. fin","Jalon","note"]].rename(
-                columns={"id":"ID","phase":"Phase","task":"Tâche","work_date":"Date","hours":"Heures","note":"Note"}
-            ),
-            hide_index=True, use_container_width=True
+        show_df = disp[["id", "phase", "task", "work_date", "hours", "note"]].rename(
+            columns={"id": "ID", "phase": "Phase", "task": "Tâche", "work_date": "Date", "hours": "Heures",
+                     "note": "Note"}
         )
-        with st.expander("🗑️ Supprimer une entrée"):
-            del_id = st.selectbox(
-                "Entrée à supprimer",
-                df["id"].tolist(),
-                format_func=lambda i: f"#{i} – {df[df['id']==i]['task'].values[0]} ({df[df['id']==i]['work_date'].values[0]}, {df[df['id']==i]['hours'].values[0]}h)"
-            )
-            if st.button("Supprimer", type="secondary"):
-                delete_entry(del_id)
-                st.success("Entrée supprimée.")
-                st.rerun()
-    else:
-        st.info("Aucune entrée pour l'instant.")
+        show_df["Delete"] = False
+
+        # Allow editing on the "Note" column
+        edited_df = st.data_editor(
+            show_df,
+            hide_index=True,
+            use_container_width=True,
+            disabled=["ID", "Phase", "Tâche", "Date", "Heures"],
+            key="entry_editor"
+        )
+
+        # Handle updates
+        if st.session_state.entry_editor.get("edited_rows"):
+            for row_idx, changes in st.session_state.entry_editor["edited_rows"].items():
+                if "Note" in changes:
+                    e_id = int(show_df.iloc[row_idx]["ID"])
+                    new_val = changes["Note"]
+                    update_entry_note(e_id, new_val)
+            st.success("Note mise à jour.")
+            st.rerun()
+
+        # Handle deletions
+        rows_to_delete = edited_df[edited_df["Delete"] == True]
+        if not rows_to_delete.empty:
+            for _, row in rows_to_delete.iterrows():
+                delete_entry(row["ID"])
+            st.success("Entrée(s) supprimée(s).")
+            st.rerun()
 
 # ═══════════════════════════════════════════════════════════════
 # TAB 2 — Gantt
@@ -424,7 +521,6 @@ with tab_gantt:
     if df.empty:
         st.info("Ajoutez des entrées pour générer le Gantt.")
     else:
-        # Detect dark mode from Streamlit theme
         is_dark = st.get_option("theme.base") == "dark"
         fig = build_gantt(df, dark=is_dark)
         st.plotly_chart(fig, use_container_width=True)
@@ -464,7 +560,7 @@ with tab_recap:
 
         st.divider()
 
-        # By phase → task (nested)
+        # By phase → task
         st.subheader("Par phase › tâche")
         task_recap = (
             df.groupby(["phase", "task"])
