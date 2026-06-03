@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
+from typing import Any, cast
 
 from log_gantt import init_db, get_phases, update_phase_name, delete_phase, get_tasks, add_task, update_task_name, \
     delete_task, add_entry, load_entries, update_entry_note, delete_entry, build_gantt, add_phase
@@ -70,19 +71,19 @@ def main():
                 key="phases_editor"
             )
 
-            # Handle updates
-            phases_editor_state = st.session_state.get("phases_editor", {})
+            # Handle updates safely without calling st.session_state directly inside loop
+            phases_editor_state = cast(Any, st.session_state.get("phases_editor", {}))
             if phases_editor_state.get("edited_rows"):
-                for row_idx, changes in st.session_state.phases_editor["edited_rows"].items():
+                for row_idx, changes in phases_editor_state["edited_rows"].items():
                     if "Phase" in changes:
-                        p_id = int(show_phases.iloc[row_idx]["ID"])
+                        p_id = int(show_phases.iloc[int(row_idx)]["ID"])
                         new_val = changes["Phase"]
                         update_phase_name(p_id, new_val)
                 st.success("Phase modifiée.")
                 st.rerun()
 
             # Handle deletions
-            phases_to_delete = edited_phases[edited_phases["Delete"] == True]
+            phases_to_delete = edited_phases[edited_phases["Delete"]]
             if not phases_to_delete.empty:
                 for _, row in phases_to_delete.iterrows():
                     delete_phase(row["ID"])
@@ -99,8 +100,12 @@ def main():
                 if phases_df.empty:
                     st.info("Créez d'abord une phase.")
                 else:
-                    t_phase = st.selectbox("Phase", phases_df["id"].tolist(),
-                                           format_func=lambda i: phases_df[phases_df["id"] == i]["name"].values[0])
+                    # Fix ndarray lookup issue by isolating via .loc with item scalar resolution
+                    t_phase = st.selectbox(
+                        "Phase",
+                        phases_df["id"].tolist(),
+                        format_func=lambda i: str(phases_df.loc[phases_df["id"] == i, "name"].values[0])
+                    )
                     t_name = st.text_input("Nom de la tâche")
                     if st.form_submit_button("➕ Créer la tâche"):
                         if t_name.strip():
@@ -109,8 +114,9 @@ def main():
                             st.rerun()
 
         if not tasks_df.empty:
-            show_tasks = tasks_df[["id", "phase", "name"]].rename(
-                columns={"id": "ID", "phase": "Phase", "name": "Tâche"})
+            show_tasks = cast(pd.DataFrame, tasks_df[["id", "phase", "name"]]).rename(
+                columns={"id": "ID", "phase": "Phase", "name": "Tâche"}
+            )
             show_tasks["Delete"] = False
 
             # Allow editing on the "Tâche" column
@@ -123,18 +129,18 @@ def main():
             )
 
             # Handle updates
-            task_editor_state = st.session_state.get("tasks_editor", {})
+            task_editor_state = cast(Any, st.session_state.get("tasks_editor", {}))
             if task_editor_state.get("edited_rows"):
-                for row_idx, changes in st.session_state.tasks_editor["edited_rows"].items():
+                for row_idx, changes in task_editor_state["edited_rows"].items():
                     if "Tâche" in changes:
-                        t_id = int(show_tasks.iloc[row_idx]["ID"])
+                        t_id = int(show_tasks.iloc[int(row_idx)]["ID"])
                         new_val = changes["Tâche"]
                         update_task_name(t_id, new_val)
                 st.success("Tâche modifiée.")
                 st.rerun()
 
             # Handle deletions
-            tasks_to_delete = edited_tasks[edited_tasks["Delete"] == True]
+            tasks_to_delete = edited_tasks[edited_tasks["Delete"]]
             if not tasks_to_delete.empty:
                 for _, row in tasks_to_delete.iterrows():
                     delete_task(row["ID"])
@@ -153,11 +159,14 @@ def main():
                 "Allez dans **⚙️ Gérer phases & tâches** pour créer vos phases et tâches avant de saisir des entrées.")
         else:
             with st.form("entry_form", clear_on_submit=True):
+                # Fix ndarray lookup tracking by using standard clean string mappings
                 selected_task_id = st.selectbox(
                     "Tâche",
                     tasks_df["id"].tolist(),
-                    format_func=lambda
-                        i: f"{tasks_df[tasks_df['id'] == i]['phase'].values[0]} › {tasks_df[tasks_df['id'] == i]['name'].values[0]}",
+                    format_func=lambda i: (
+                        f"{str(tasks_df.loc[tasks_df['id'] == i, 'phase'].values[0])} › "
+                        f"{str(tasks_df.loc[tasks_df['id'] == i, 'name'].values[0])}"
+                    ),
                     key="entry_task"
                 )
 
@@ -185,9 +194,8 @@ def main():
         df = load_entries()
         if not df.empty:
             disp = df.copy()
-            show_df = disp[["id", "phase", "task", "work_date", "hours", "note"]].rename(
-                columns={"id": "ID", "phase": "Phase", "task": "Tâche", "work_date": "Date", "hours": "Heures",
-                         "note": "Note"}
+            show_df = cast(pd.DataFrame, disp[["id", "phase", "task", "work_date", "hours", "note"]]).rename(
+                columns={"id": "ID", "phase": "Phase", "task": "Tâche", "work_date": "Date", "hours": "Heures", "note": "Note"}
             )
             show_df["Delete"] = False
 
@@ -201,18 +209,18 @@ def main():
             )
 
             # Handle updates
-            entry_editor_state = st.session_state.get("entry_editor", {})
+            entry_editor_state = cast(Any, st.session_state.get("entry_editor", {}))
             if entry_editor_state.get("edited_rows"):
-                for row_idx, changes in st.session_state.entry_editor["edited_rows"].items():
+                for row_idx, changes in entry_editor_state["edited_rows"].items():
                     if "Note" in changes:
-                        e_id = int(show_df.iloc[row_idx]["ID"])
+                        e_id = int(show_df.iloc[int(row_idx)]["ID"])
                         new_val = changes["Note"]
                         update_entry_note(e_id, new_val)
                 st.success("Note mise à jour.")
                 st.rerun()
 
             # Handle deletions
-            rows_to_delete = edited_df[edited_df["Delete"] == True]
+            rows_to_delete = edited_df[edited_df["Delete"]]
             if not rows_to_delete.empty:
                 for _, row in rows_to_delete.iterrows():
                     delete_entry(row["ID"])
@@ -239,11 +247,12 @@ def main():
         if df.empty:
             st.info("Aucune donnée à résumer.")
         else:
-            total = df["hours"].sum()
+            total = float(cast(float, df["hours"].sum()))
             col1, col2, col3 = st.columns(3)
             col1.metric("Total heures", f"{total:.2f} h")
-            col2.metric("Phases", df["phase"].nunique())
-            col3.metric("Tâches", df["task"].nunique())
+
+            col2.metric("Phases", int(cast(int, df["phase"].nunique())))
+            col3.metric("Tâches", int(cast(int, df["task"].nunique())))
 
             st.divider()
 

@@ -7,5 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "pandas>=3.0.3",
     "plotly>=6.7.0",
+    "pyright>=1.1.410",
+    "ruff>=0.15.15",
     "streamlit>=1.58.0",
 ]

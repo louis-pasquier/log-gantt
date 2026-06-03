@@ -88,7 +88,7 @@ def get_tasks(phase_id=None):
     if phase_id:
         df = pd.read_sql_query(
             "SELECT t.id, t.name, p.name as phase FROM tasks t JOIN phases p ON t.phase_id=p.id WHERE t.phase_id=? ORDER BY t.name",
-            conn, params=(phase_id,)
+            conn, params=[phase_id]
         )
     else:
         df = pd.read_sql_query(
