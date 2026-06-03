@@ -9,6 +9,7 @@ DB = "timesheet.db"
 # DB
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -50,6 +51,7 @@ def init_db():
 
 # ── phases ────────────────────────────────────────────────────────────────────
 
+
 def get_phases():
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query("SELECT id, name FROM phases ORDER BY name", conn)
@@ -75,25 +77,29 @@ def delete_phase(phase_id):
     conn.commit()
     conn.close()
 
+
 def update_phase_name(phase_id, new_name):
     conn = sqlite3.connect(DB)
     conn.execute("UPDATE phases SET name=? WHERE id=?", (new_name.strip(), phase_id))
     conn.commit()
     conn.close()
 
+
 # ── tasks ─────────────────────────────────────────────────────────────────────
+
 
 def get_tasks(phase_id=None):
     conn = sqlite3.connect(DB)
     if phase_id:
         df = pd.read_sql_query(
             "SELECT t.id, t.name, p.name as phase FROM tasks t JOIN phases p ON t.phase_id=p.id WHERE t.phase_id=? ORDER BY t.name",
-            conn, params=[phase_id]
+            conn,
+            params=[phase_id],
         )
     else:
         df = pd.read_sql_query(
             "SELECT t.id, t.name, p.name as phase, t.phase_id FROM tasks t JOIN phases p ON t.phase_id=p.id ORDER BY p.name, t.name",
-            conn
+            conn,
         )
     conn.close()
     return df
@@ -101,7 +107,9 @@ def get_tasks(phase_id=None):
 
 def add_task(phase_id, name):
     conn = sqlite3.connect(DB)
-    conn.execute("INSERT INTO tasks(phase_id, name) VALUES (?, ?)", (phase_id, name.strip()))
+    conn.execute(
+        "INSERT INTO tasks(phase_id, name) VALUES (?, ?)", (phase_id, name.strip())
+    )
     conn.commit()
     conn.close()
 
@@ -112,6 +120,7 @@ def delete_task(task_id):
     conn.commit()
     conn.close()
 
+
 def update_task_name(task_id, new_name):
     conn = sqlite3.connect(DB)
     conn.execute("UPDATE tasks SET name=? WHERE id=?", (new_name.strip(), task_id))
@@ -121,11 +130,20 @@ def update_task_name(task_id, new_name):
 
 # ── entries ───────────────────────────────────────────────────────────────────
 
+
 def add_entry(task_id, work_date, hours, week_start, week_end, milestone, note):
     conn = sqlite3.connect(DB)
     conn.execute(
         "INSERT INTO entries(task_id, work_date, hours, week_start, week_end, milestone, note) VALUES (?,?,?,?,?,?,?)",
-        (task_id, str(work_date), float(hours), str(week_start), str(week_end), int(milestone), note)
+        (
+            task_id,
+            str(work_date),
+            float(hours),
+            str(week_start),
+            str(week_end),
+            int(milestone),
+            note,
+        ),
     )
     conn.commit()
     conn.close()
@@ -137,6 +155,7 @@ def delete_entry(entry_id):
     conn.commit()
     conn.close()
 
+
 def update_entry_note(entry_id, new_note):
     conn = sqlite3.connect(DB)
     conn.execute("UPDATE entries SET note=? WHERE id=?", (new_note.strip(), entry_id))
@@ -146,14 +165,17 @@ def update_entry_note(entry_id, new_note):
 
 def load_entries():
     conn = sqlite3.connect(DB)
-    df = pd.read_sql_query("""
+    df = pd.read_sql_query(
+        """
         SELECT e.id, p.name as phase, t.name as task,
                e.work_date, e.hours, e.week_start, e.week_end, e.milestone, e.note
         FROM entries e
         JOIN tasks t ON e.task_id = t.id
         JOIN phases p ON t.phase_id = p.id
         ORDER BY e.week_start, p.name, t.name
-    """, conn)
+    """,
+        conn,
+    )
     conn.close()
     return df
 
@@ -161,6 +183,7 @@ def load_entries():
 # ─────────────────────────────────────────────────────────────────────────────
 # Gantt
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def build_gantt(df: pd.DataFrame, dark: bool):
     if df.empty:
@@ -189,23 +212,31 @@ def build_gantt(df: pd.DataFrame, dark: bool):
     ordered = []
     for ph in seen_phases:
         subset = data[data["phase"].fillna("Sans phase") == ph]
-        ordered.append({
-            "label": ph,
-            "is_phase": True,
-            "start": subset["real_start"].min(),
-            "end": subset["real_end"].max()
-        })
+        ordered.append(
+            {
+                "label": ph,
+                "is_phase": True,
+                "start": subset["real_start"].min(),
+                "end": subset["real_end"].max(),
+            }
+        )
 
-        task_subset = subset.groupby("task").agg({"real_start": "min", "real_end": "max"}).reset_index()
+        task_subset = (
+            subset.groupby("task")
+            .agg({"real_start": "min", "real_end": "max"})
+            .reset_index()
+        )
         task_subset = task_subset.sort_values("real_start")
 
         for _, row in task_subset.iterrows():
-            ordered.append({
-                "label": row["task"],
-                "is_phase": False,
-                "start": row["real_start"],
-                "end": row["real_end"]
-            })
+            ordered.append(
+                {
+                    "label": row["task"],
+                    "is_phase": False,
+                    "start": row["real_start"],
+                    "end": row["real_end"],
+                }
+            )
 
     n = len(ordered)
 
@@ -233,10 +264,16 @@ def build_gantt(df: pd.DataFrame, dark: bool):
     while current_day <= end_timeline:
         # Create a vertical grid line for every single day column boundary
         # Solid or slightly heavier line on Mondays to show week separations
-        is_monday = (current_day.weekday() == 0)
-        v_color = grid_col if not is_monday else ("rgba(255,255,255,0.3)" if dark else "rgba(0,0,0,0.3)")
+        is_monday = current_day.weekday() == 0
+        v_color = (
+            grid_col
+            if not is_monday
+            else ("rgba(255,255,255,0.3)" if dark else "rgba(0,0,0,0.3)")
+        )
 
-        fig.add_vline(x=current_day, line_width=0.8, line_dash="dash", line_color=v_color)
+        fig.add_vline(
+            x=current_day, line_width=0.8, line_dash="dash", line_color=v_color
+        )
 
         # Place the Week Name (PXX) only once per week block (centered on Wednesday)
         if current_day.weekday() == 3:
@@ -255,21 +292,23 @@ def build_gantt(df: pd.DataFrame, dark: bool):
         duration_ms = (o["end"] - o["start"]).total_seconds() * 1000
         dur_days = (o["end"] - o["start"]).days
 
-        fig.add_trace(go.Bar(
-            x=[duration_ms],
-            y=[y],
-            base=[o["start"].strftime("%Y-%m-%d %H:%M:%S")],
-            orientation="h",
-            marker_color=color,
-            width=bh,
-            hovertemplate=(
-                f"<b>{o['label']}</b><br>"
-                f"Début: {o['start'].strftime('%d %b %Y')}<br>"
-                f"Fin: {(o['end'] - pd.Timedelta(days=1)).strftime('%d %b %Y')}<br>"
-                f"Durée: {dur_days} jour(s)<extra></extra>"
-            ),
-            showlegend=False
-        ))
+        fig.add_trace(
+            go.Bar(
+                x=[duration_ms],
+                y=[y],
+                base=[o["start"].strftime("%Y-%m-%d %H:%M:%S")],
+                orientation="h",
+                marker_color=color,
+                width=bh,
+                hovertemplate=(
+                    f"<b>{o['label']}</b><br>"
+                    f"Début: {o['start'].strftime('%d %b %Y')}<br>"
+                    f"Fin: {(o['end'] - pd.Timedelta(days=1)).strftime('%d %b %Y')}<br>"
+                    f"Durée: {dur_days} jour(s)<extra></extra>"
+                ),
+                showlegend=False,
+            )
+        )
 
         # Horizontal row separation line
         fig.add_hline(y=y - 0.5, line_width=0.5, line_dash="dash", line_color=grid_col)
@@ -296,7 +335,7 @@ def build_gantt(df: pd.DataFrame, dark: bool):
             tickfont=dict(size=12, family=font_fam, color=text_color),
             showgrid=False,
             zeroline=False,
-            side="left"
+            side="left",
         ),
         font=dict(family=font_fam, size=12, color=text_color),
     )

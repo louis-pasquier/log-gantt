@@ -3,8 +3,22 @@ import pandas as pd
 import streamlit as st
 from typing import Any, cast
 
-from log_gantt import init_db, get_phases, update_phase_name, delete_phase, get_tasks, add_task, update_task_name, \
-    delete_task, add_entry, load_entries, update_entry_note, delete_entry, build_gantt, add_phase
+from log_gantt import (
+    init_db,
+    get_phases,
+    update_phase_name,
+    delete_phase,
+    get_tasks,
+    add_task,
+    update_task_name,
+    delete_task,
+    add_entry,
+    load_entries,
+    update_entry_note,
+    delete_entry,
+    build_gantt,
+    add_phase,
+)
 
 
 def main():
@@ -19,7 +33,8 @@ def main():
         st.session_state.dark = False
 
     # CSS: transparent backgrounds so Streamlit's own theme shows through
-    st.markdown("""
+    st.markdown(
+        """
     <style>
       [data-testid="stAppViewContainer"],
       [data-testid="stHeader"],
@@ -30,13 +45,15 @@ def main():
       [data-baseweb="tab-list"] { gap: 8px; }
       [data-baseweb="tab"] { border-radius: 4px 4px 0 0; }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     st.title("📋 Journal de bord & Gantt")
 
-    tab_log, tab_gantt, tab_recap, tab_manage = st.tabs([
-        "📝 Saisie", "📊 Gantt", "📈 Récapitulatif", "⚙️ Gérer phases & tâches"
-    ])
+    tab_log, tab_gantt, tab_recap, tab_manage = st.tabs(
+        ["📝 Saisie", "📊 Gantt", "📈 Récapitulatif", "⚙️ Gérer phases & tâches"]
+    )
 
     # ═══════════════════════════════════════════════════════════════
     # TAB 4 — Manage phases & tasks
@@ -68,7 +85,7 @@ def main():
                 hide_index=True,
                 use_container_width=True,
                 disabled=["ID"],
-                key="phases_editor"
+                key="phases_editor",
             )
 
             # Handle updates safely without calling st.session_state directly inside loop
@@ -104,7 +121,9 @@ def main():
                     t_phase = st.selectbox(
                         "Phase",
                         phases_df["id"].tolist(),
-                        format_func=lambda i: str(phases_df.loc[phases_df["id"] == i, "name"].values[0])
+                        format_func=lambda i: str(
+                            phases_df.loc[phases_df["id"] == i, "name"].values[0]
+                        ),
                     )
                     t_name = st.text_input("Nom de la tâche")
                     if st.form_submit_button("➕ Créer la tâche"):
@@ -125,7 +144,7 @@ def main():
                 hide_index=True,
                 use_container_width=True,
                 disabled=["ID", "Phase"],
-                key="tasks_editor"
+                key="tasks_editor",
             )
 
             # Handle updates
@@ -156,7 +175,8 @@ def main():
 
         if phases_df.empty or tasks_df.empty:
             st.info(
-                "Allez dans **⚙️ Gérer phases & tâches** pour créer vos phases et tâches avant de saisir des entrées.")
+                "Allez dans **⚙️ Gérer phases & tâches** pour créer vos phases et tâches avant de saisir des entrées."
+            )
         else:
             with st.form("entry_form", clear_on_submit=True):
                 # Fix ndarray lookup tracking by using standard clean string mappings
@@ -167,7 +187,7 @@ def main():
                         f"{str(tasks_df.loc[tasks_df['id'] == i, 'phase'].values[0])} › "
                         f"{str(tasks_df.loc[tasks_df['id'] == i, 'name'].values[0])}"
                     ),
-                    key="entry_task"
+                    key="entry_task",
                 )
 
                 today = date.today()
@@ -178,7 +198,9 @@ def main():
 
                 note = st.text_input("Note (optionnel)")
 
-                submitted = st.form_submit_button("✅ Enregistrer", use_container_width=True)
+                submitted = st.form_submit_button(
+                    "✅ Enregistrer", use_container_width=True
+                )
                 if submitted:
                     if selected_task_id is None:
                         st.warning("Sélectionnez une tâche valide.")
@@ -194,8 +216,18 @@ def main():
         df = load_entries()
         if not df.empty:
             disp = df.copy()
-            show_df = cast(pd.DataFrame, disp[["id", "phase", "task", "work_date", "hours", "note"]]).rename(
-                columns={"id": "ID", "phase": "Phase", "task": "Tâche", "work_date": "Date", "hours": "Heures", "note": "Note"}
+            show_df = cast(
+                pd.DataFrame,
+                disp[["id", "phase", "task", "work_date", "hours", "note"]],
+            ).rename(
+                columns={
+                    "id": "ID",
+                    "phase": "Phase",
+                    "task": "Tâche",
+                    "work_date": "Date",
+                    "hours": "Heures",
+                    "note": "Note",
+                }
             )
             show_df["Delete"] = False
 
@@ -205,7 +237,7 @@ def main():
                 hide_index=True,
                 use_container_width=True,
                 disabled=["ID", "Phase", "Tâche", "Date", "Heures"],
-                key="entry_editor"
+                key="entry_editor",
             )
 
             # Handle updates
@@ -270,7 +302,9 @@ def main():
                 .rename(columns={"phase": "Phase"})
                 .sort_values("Heures", ascending=False)
             )
-            phase_recap["%"] = (phase_recap["Heures"] / total * 100).round(1).astype(str) + " %"
+            phase_recap["%"] = (phase_recap["Heures"] / total * 100).round(1).astype(
+                str
+            ) + " %"
             st.dataframe(phase_recap, hide_index=True, use_container_width=True)
 
             st.divider()
@@ -287,7 +321,9 @@ def main():
                 .rename(columns={"phase": "Phase", "task": "Tâche"})
                 .sort_values(["Phase", "Heures"], ascending=[True, False])
             )
-            task_recap["%"] = (task_recap["Heures"] / total * 100).round(1).astype(str) + " %"
+            task_recap["%"] = (task_recap["Heures"] / total * 100).round(1).astype(
+                str
+            ) + " %"
             st.dataframe(task_recap, hide_index=True, use_container_width=True)
 
             st.divider()
