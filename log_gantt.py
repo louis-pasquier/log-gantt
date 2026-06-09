@@ -163,6 +163,20 @@ def update_entry_note(entry_id, new_note):
     conn.close()
 
 
+def update_entry_hours(entry_id, new_hour):
+    conn = sqlite3.connect(DB)
+    conn.execute("UPDATE entries SET hours=? WHERE id=?", (new_hour.strip(), entry_id))
+    conn.commit()
+    conn.close()
+
+
+def update_entry_date(entry_id, new_date):
+    conn = sqlite3.connect(DB)
+    conn.execute("UPDATE entries SET work_date=? WHERE id=?", (new_date, entry_id))
+    conn.commit()
+    conn.close()
+
+
 def load_entries():
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query(

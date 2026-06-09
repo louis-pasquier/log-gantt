@@ -15,6 +15,7 @@ from log_gantt import (
     add_entry,
     load_entries,
     update_entry_note,
+    update_entry_hours,
     delete_entry,
     build_gantt,
     add_phase,
@@ -88,6 +89,14 @@ def main():
                 key="phases_editor",
             )
 
+            # Handle deletions
+            phases_to_delete = edited_phases[edited_phases["Delete"]]
+            if not phases_to_delete.empty:
+                for _, row in phases_to_delete.iterrows():
+                    delete_phase(row["ID"])
+                st.success("Phase(s) supprimée(s).")
+                st.rerun()
+
             # Handle updates safely without calling st.session_state directly inside loop
             phases_editor_state = cast(Any, st.session_state.get("phases_editor", {}))
             if phases_editor_state.get("edited_rows"):
@@ -97,14 +106,6 @@ def main():
                         new_val = changes["Phase"]
                         update_phase_name(p_id, new_val)
                 st.success("Phase modifiée.")
-                st.rerun()
-
-            # Handle deletions
-            phases_to_delete = edited_phases[edited_phases["Delete"]]
-            if not phases_to_delete.empty:
-                for _, row in phases_to_delete.iterrows():
-                    delete_phase(row["ID"])
-                st.success("Phase(s) supprimée(s).")
                 st.rerun()
 
         st.divider()
@@ -147,6 +148,14 @@ def main():
                 key="tasks_editor",
             )
 
+            # Handle deletions
+            tasks_to_delete = edited_tasks[edited_tasks["Delete"]]
+            if not tasks_to_delete.empty:
+                for _, row in tasks_to_delete.iterrows():
+                    delete_task(row["ID"])
+                st.success("Tâche(s) supprimée(s).")
+                st.rerun()
+
             # Handle updates
             task_editor_state = cast(Any, st.session_state.get("tasks_editor", {}))
             if task_editor_state.get("edited_rows"):
@@ -156,14 +165,6 @@ def main():
                         new_val = changes["Tâche"]
                         update_task_name(t_id, new_val)
                 st.success("Tâche modifiée.")
-                st.rerun()
-
-            # Handle deletions
-            tasks_to_delete = edited_tasks[edited_tasks["Delete"]]
-            if not tasks_to_delete.empty:
-                for _, row in tasks_to_delete.iterrows():
-                    delete_task(row["ID"])
-                st.success("Tâche(s) supprimée(s).")
                 st.rerun()
 
     # ═══════════════════════════════════════════════════════════════
@@ -231,25 +232,14 @@ def main():
             )
             show_df["Delete"] = False
 
-            # Allow editing on the "Note" column
+            # Allow editing on the "Note" and "Heures" columns
             edited_df = st.data_editor(
                 show_df,
                 hide_index=True,
                 use_container_width=True,
-                disabled=["ID", "Phase", "Tâche", "Date", "Heures"],
+                disabled=["ID", "Phase", "Tâche", "Date"],
                 key="entry_editor",
             )
-
-            # Handle updates
-            entry_editor_state = cast(Any, st.session_state.get("entry_editor", {}))
-            if entry_editor_state.get("edited_rows"):
-                for row_idx, changes in entry_editor_state["edited_rows"].items():
-                    if "Note" in changes:
-                        e_id = int(show_df.iloc[int(row_idx)]["ID"])
-                        new_val = changes["Note"]
-                        update_entry_note(e_id, new_val)
-                st.success("Note mise à jour.")
-                st.rerun()
 
             # Handle deletions
             rows_to_delete = edited_df[edited_df["Delete"]]
@@ -257,6 +247,18 @@ def main():
                 for _, row in rows_to_delete.iterrows():
                     delete_entry(row["ID"])
                 st.success("Entrée(s) supprimée(s).")
+                st.rerun()
+
+            # Handle updates
+            entry_editor_state = cast(Any, st.session_state.get("entry_editor", {}))
+            if entry_editor_state.get("edited_rows"):
+                for row_idx, changes in entry_editor_state["edited_rows"].items():
+                    e_id = int(show_df.iloc[int(row_idx)]["ID"])
+                    if "Note" in changes:
+                        update_entry_note(e_id, changes["Note"])
+                    if "Heures" in changes:
+                        update_entry_hours(e_id, changes["Heures"])
+                st.success("Entrée(s) mise(s) à jour.")
                 st.rerun()
 
     # ═══════════════════════════════════════════════════════════════
@@ -279,6 +281,8 @@ def main():
         if df.empty:
             st.info("Aucune donnée à résumer.")
         else:
+            df["hours"] = pd.to_numeric(df["hours"], errors="coerce")
+            df.dropna(subset=["hours"], inplace=True)
             total = float(cast(float, df["hours"].sum()))
             col1, col2, col3 = st.columns(3)
             col1.metric("Total heures", f"{total:.2f} h")
