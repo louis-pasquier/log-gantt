@@ -165,7 +165,7 @@ def update_entry_note(entry_id, new_note):
 
 def update_entry_hours(entry_id, new_hour):
     conn = sqlite3.connect(DB)
-    conn.execute("UPDATE entries SET hours=? WHERE id=?", (new_hour.strip(), entry_id))
+    conn.execute("UPDATE entries SET hours=? WHERE id=?", (new_hour, entry_id))
     conn.commit()
     conn.close()
 
