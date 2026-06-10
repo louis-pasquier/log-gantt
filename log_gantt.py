@@ -172,7 +172,18 @@ def update_entry_hours(entry_id, new_hour):
 
 def update_entry_date(entry_id, new_date):
     conn = sqlite3.connect(DB)
-    conn.execute("UPDATE entries SET work_date=? WHERE id=?", (new_date, entry_id))
+    work_date_dt = pd.to_datetime(new_date)
+    week_start = work_date_dt - pd.Timedelta(days=work_date_dt.weekday())
+    week_end = week_start + pd.Timedelta(days=6)
+    conn.execute(
+        "UPDATE entries SET work_date=?, week_start=?, week_end=? WHERE id=?",
+        (
+            work_date_dt.strftime("%Y-%m-%d"),
+            week_start.strftime("%Y-%m-%d"),
+            week_end.strftime("%Y-%m-%d"),
+            entry_id,
+        ),
+    )
     conn.commit()
     conn.close()
 

@@ -18,7 +18,7 @@ from log_gantt import (
     update_entry_hours,
     delete_entry,
     build_gantt,
-    add_phase,
+    add_phase, update_entry_date,
 )
 
 
@@ -237,7 +237,7 @@ def main():
                 show_df,
                 hide_index=True,
                 use_container_width=True,
-                disabled=["ID", "Phase", "Tâche", "Date"],
+                disabled=["ID", "Phase", "Tâche"],
                 key="entry_editor",
             )
 
@@ -258,6 +258,8 @@ def main():
                         update_entry_note(e_id, changes["Note"])
                     if "Heures" in changes:
                         update_entry_hours(e_id, changes["Heures"])
+                    if "Date" in changes:
+                        update_entry_date(e_id, changes["Date"])
                 st.success("Entrée(s) mise(s) à jour.")
                 st.rerun()
 
